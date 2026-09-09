@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#17354b"><meta name="description" content="Avolith Studio — direct 3D modeling, native WebGPU visualization, and local-first engineering workflows.">
+<title>Avolith Studio — Direct Modeling</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect rx='7' width='32' height='32' fill='%231b435a'/%3E%3Cpath d='M6 24L16 5l10 19h-6l-4-8-4 8z' fill='%23f1b65f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="titlebar">
+    <button class="brand" data-cmd="examples" title="Avolith Studio · Example models"><svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3 24 16 2l13 22-13 7Z" fill="#9ebdc8" opacity=".2"/><path d="M7 23 16 6l9 17h-5l-4-8-4 8Z" fill="#f2bd6b"/><path d="m13 24 3-5 3 5-3 3Z" fill="#dcebf1"/></svg><span>AVOLITH</span><em>STUDIO</em></button>
+    <div class="quick-access" id="quick-access"></div>
+    <div class="title-document"><span class="document-dot"></span><span id="document-title">Actuator housing</span><span class="title-divider">—</span><span>Direct Modeling</span></div>
+    <button class="command-search" data-cmd="palette" aria-label="Find a command"><span id="search-icon"></span><span>Find a command</span><kbd>Ctrl K</kbd></button>
+    <div id="title-actions"></div>
+    <span class="local-avatar" title="Local workspace">L</span>
+  </header>
+  <nav class="tabs" aria-label="Ribbon tabs"><button id="file-button" data-cmd="file">File</button><div id="ribbon-tabs"></div><span class="workspace-label">DIRECT MODELING <span class="version-badge">0.1</span></span></nav>
+  <section id="ribbon" class="ribbon" aria-label="Modeling tools"></section>
+  <div class="document-tabs"><button id="sidebar-toggle" class="icon-button" aria-label="Toggle structure panel"></button><button class="document-tab active" data-cmd="model"><span id="model-tab-icon"></span><span id="model-tab-name">Actuator housing</span><span class="unsaved-dot" hidden>•</span></button><button class="document-tab" data-cmd="drawing" id="drawing-tab"><span id="drawing-tab-icon"></span><span>Drawing sheet</span></button><button class="tab-add" data-cmd="new" title="New design">+</button><div class="document-tabs-right"><span id="save-state">Local workspace</span><span class="saved-icon">✓</span></div></div>
+  <main class="workspace">
+    <aside id="sidebar" class="sidebar">
+      <div class="panel-heading"><strong>Structure</strong><div><button class="icon-button" data-cmd="component" title="New component" id="component-icon"></button><button class="icon-button" data-cmd="show" title="Show all" id="show-icon"></button></div></div>
+      <div class="tree-search"><span id="tree-search-icon"></span><input id="tree-filter" placeholder="Filter model tree" aria-label="Filter model tree"><kbd>/</kbd></div>
+      <div class="tree-root" id="tree-root"></div>
+      <div id="tree" class="tree" role="tree" aria-label="Model structure"></div>
+      <div class="panel-tabs"><button class="active" data-panel="structure">Structure</button><button data-panel="layers">Layers</button><button data-panel="groups">Groups</button></div>
+      <section class="properties"><div class="panel-heading"><strong>Properties</strong><span id="properties-settings"></span></div><div id="properties-body"></div></section>
+      <div class="sidebar-footer"><span class="tiny-dot"></span>Independent faceted-solid kernel</div>
+    </aside>
+    <section class="viewport-shell">
+      <div id="stage" class="stage" tabindex="0" aria-label="Interactive 3D modeling viewport">
+        <canvas id="viewport"></canvas><canvas id="overlay" aria-hidden="true"></canvas>
+        <div class="viewport-top"><div class="breadcrumb"><span>Design 1</span><span>›</span><strong id="viewport-title">Housing assembly</strong></div><div class="viewstyle-dropdown"><button id="shading-label" data-cmd="shading-menu">Shaded with edges <span>⌄</span></button></div></div>
+        <div class="tool-guides" id="tool-guides"></div>
+        <div class="viewcube-wrap"><button class="cube-home" data-cmd="iso" title="Isometric view" id="cube-home"></button><div class="viewcube"><button class="cube-top" data-cmd="top">TOP</button><button class="cube-front" data-cmd="front">FRONT</button><button class="cube-right" data-cmd="right">RIGHT</button></div><button class="cube-projection" data-cmd="perspective" id="cube-projection">ORTHOGRAPHIC</button></div>
+        <div id="selection-tag" class="selection-tag" hidden></div>
+        <div id="sketch-banner" class="sketch-banner" hidden></div>
+        <div class="viewport-bottom"><div class="axis-label" id="axis-label">XYZ <span>WORLD</span></div><div class="navigation-bar" id="navigation-bar"></div><div class="scale-readout"><span id="scale-rule"></span><span id="scale-text">50 mm</span></div></div>
+        <div class="viewport-hint" id="viewport-hint">Click to select · drag right to orbit · scroll to zoom</div>
+        <div id="drawings" class="drawings" hidden></div>
+        <div id="loading" class="loading"><div class="loading-mark">A</div><strong>Building your workspace</strong><span>Initializing geometry and rendering</span><div class="loader-track"><i></i></div></div>
+      </div>
+    </section>
+    <aside id="inspector" class="inspector"><div class="panel-heading"><strong>Tool options</strong><button id="tool-help" class="icon-button" data-cmd="help" title="Help"></button></div><div id="tool-panel"></div><div class="inspector-foot"><span class="privacy-icon">◈</span><div><strong>Your model stays here.</strong><span>Local files. No account. No uploads.</span></div></div></aside>
+  </main>
+  <section class="history-strip"><div class="history-title" id="history-title"></div><div id="history" class="history-items"></div><button class="icon-button" data-cmd="undo" id="history-undo" title="Undo"></button><button class="icon-button" data-cmd="redo" id="history-redo" title="Redo"></button></section>
+  <footer class="statusbar"><div class="status-message"><span class="ready-dot" id="ready-dot"></span><span id="status-message">Ready</span></div><span id="selection-status">No selection</span><span class="status-separator"></span><span id="geometry-status">19 bodies</span><span class="status-spacer"></span><button id="renderer-status" data-cmd="renderer-info">Initializing renderer</button><span id="render-timing"></span><span class="status-separator"></span><label class="units-label"><select id="units" aria-label="Display units"><option value="mm">Millimeters</option><option value="in">Inches</option></select></label><button id="panel-toggle" class="icon-button" aria-label="Toggle tool panel"></button></footer>
+</div>
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+<div id="popup" class="popup" hidden></div>
+<dialog id="modal"><form method="dialog" id="modal-form"><div class="modal-heading"><div><span class="eyebrow" id="modal-eyebrow">AVOLITH STUDIO</span><h2 id="modal-title">Create body</h2></div><button class="icon-button modal-close" type="button" id="modal-close" aria-label="Close dialog">×</button></div><div id="modal-body"></div><div id="modal-error" class="form-error" role="alert" hidden></div><div class="modal-actions"><button class="button secondary" type="button" id="modal-cancel">Cancel</button><button class="button primary" type="submit" id="modal-submit">Create</button></div></form></dialog>
+<dialog id="palette"><div class="palette-input"><span id="palette-icon"></span><input id="palette-query" placeholder="Find a tool, view, or file command…" autocomplete="off" aria-label="Search commands"><kbd>Esc</kbd></div><div id="palette-results"></div><div class="palette-footer">Type to filter <span>↵ run command</span></div></dialog>
+<input type="file" id="file-input" accept=".avl,.avolith,.json,.stl,.obj,.ply,.dxf" hidden>
+<noscript><div class="fatal-error">Avolith Studio requires JavaScript to run its geometry and rendering engines.</div></noscript>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
