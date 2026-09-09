@@ -1,0 +1,31 @@
+name: Import original Avolith source
+on:
+  push:
+    paths:
+      - '.bootstrap/**'
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node .bootstrap/import.mjs
+      - run: npm run build
+      - run: node scripts/generate-examples.mjs
+      - name: Commit unpacked original source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src scripts index.html style.css package.json LICENSE .gitignore dist examples
+          git commit -m 'feat: import original Avolith Studio application and standalone distribution'
+          git push origin HEAD:main
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avolith-baseline-standalone
+          path: dist/Avolith-Studio.html
