@@ -1,0 +1,62 @@
+name: Land advanced precision modeling
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: ['.github/workflows/stage-02-native.yml']
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/exact-modeling-engineering
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply SHA-256 verified modeling source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for sha in dbd7dbab2cff17e8b1a336749c0ed6f1f9d60600 f70f912e20078027ecf942857ac839331ec29899 35f33f09cd5f6f056a2cd07136622a9f3c3af255; do
+            gh api repos/${{ github.repository }}/git/blobs/$sha --jq .content | base64 -d >> /tmp/stage.br
+          done
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';import zlib from 'node:zlib';import crypto from 'node:crypto';import{execFileSync}from'node:child_process';
+          const bytes=fs.readFileSync('/tmp/stage.br');if(crypto.createHash('sha256').update(bytes).digest('hex')!=='e7505bf3e856a26417f88704e9031f5ba4ac82f945e7084b1e8b9b04e228de4f')throw Error('Source transfer checksum mismatch');
+          const data=JSON.parse(zlib.brotliDecompressSync(bytes));fs.writeFileSync('/tmp/stage.patch',data.patch);execFileSync('git',['apply','--check','/tmp/stage.patch']);execFileSync('git',['apply','/tmp/stage.patch']);
+          for(const [name,content]of Object.entries(data.files)){if(!/^(src|tests|scripts|docs)\//.test(name)||name.split('/').includes('..'))throw Error('Invalid source path');fs.mkdirSync(name.slice(0,name.lastIndexOf('/')),{recursive:true});fs.writeFileSync(name,content);}
+          JS
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-kernels-1.1.0-1.1.1-v1
+      - run: npm run vendor
+      - run: npm test && npm run test:exact && npm run build:site
+      - name: Commit validated implementation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests scripts index.html package.json dist/Avolith-Studio.html
+          git commit -m 'feat: variable fillets, UV-trimmed periodic NURBS, fitted surfaces and native section workbench'
+          git push origin HEAD:feature/exact-modeling-engineering
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.58.0 Pillow==12.1.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Check browser and corrected GPU capture
+        run: |
+          mkdir -p test-results
+          python -m http.server 8765 > test-results/http.log 2>&1 &
+          export AVOLITH_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          xvfb-run -a python tests/precision_browser.py
+          xvfb-run -a python tests/browser_test.py
+          xvfb-run -a python tests/render_validation.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: advanced-precision-browser-evidence
+          path: test-results/
+          retention-days: 7
