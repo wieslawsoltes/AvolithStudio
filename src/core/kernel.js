@@ -8,12 +8,12 @@ export const KERNEL_VERSION='0.1.0';
 let sequence=0;
 const tag=()=>`f${++sequence}`;
 export class Polygon {
-  constructor(vertices,id=tag()){
-    this.vertices=vertices.map(p=>p.slice());this.id=id;
+  constructor(vertices,id=tag(),normals=null){
+    this.vertices=vertices.map(p=>p.slice());this.id=id;this.normals=normals?.map(n=>V.norm(n))||null;
     this.normal=normalOf(this.vertices);this.w=V.dot(this.normal,this.vertices[0]||[0,0,0]);
   }
-  clone(){return new Polygon(this.vertices,this.id);}
-  flip(){this.vertices.reverse();this.normal=V.mul(this.normal,-1);this.w=-this.w;return this;}
+  clone(){return new Polygon(this.vertices,this.id,this.normals);}
+  flip(){this.vertices.reverse();if(this.normals)this.normals.reverse().forEach((n,i)=>this.normals[i]=V.mul(n,-1));this.normal=V.mul(this.normal,-1);this.w=-this.w;return this;}
   get valid(){return this.vertices.length>=3&&V.len(this.normal)>.5;}
 }
 export class Solid {
@@ -23,19 +23,25 @@ export class Solid {
   transform(matrix){
     const a=matrix,det=a[0]*(a[5]*a[10]-a[6]*a[9])-a[4]*(a[1]*a[10]-a[2]*a[9])+a[8]*(a[1]*a[6]-a[2]*a[5]);
     if(Math.abs(det)<1e-12)throw Error('A transform must not collapse a solid.');
-    return new Solid(this.polygons.map(p=>{let v=p.vertices.map(x=>transformedPoint(matrix,x));if(det<0)v.reverse();return new Polygon(v,p.id);}),{});
+    const inv=M.inverse(matrix),cols=[matrix.slice(0,3),matrix.slice(4,7),matrix.slice(8,11)],lens=cols.map(V.len),scale=Math.max(...lens);
+    const similarity=scale>1e-10&&Math.min(...lens)>scale*(1-1e-7)&&cols.every((x,i)=>cols.every((y,j)=>i===j||Math.abs(V.dot(x,y))<scale*scale*1e-7));
+    const meta={};
+    if(this.meta.exact){if(!similarity)throw Error('Nonuniform scaling/shear of exact bodies is not supported. Explicitly convert to facets before applying this transform.');meta.exact={...this.meta.exact,pose:M.mul(matrix,this.meta.exact.pose||M.identity())};meta.type='exact';}
+    if(this.meta.referenceKey&&similarity){meta.referenceKey=this.meta.referenceKey;meta.referenceFrame=M.mul(matrix,this.meta.referenceFrame||M.identity());}
+    return new Solid(this.polygons.map(p=>{let v=p.vertices.map(x=>transformedPoint(matrix,x)),ns=p.normals?.map(n=>V.norm([inv[0]*n[0]+inv[1]*n[1]+inv[2]*n[2],inv[4]*n[0]+inv[5]*n[1]+inv[6]*n[2],inv[8]*n[0]+inv[9]*n[1]+inv[10]*n[2]]));if(det<0){v.reverse();ns?.reverse();}return new Polygon(v,p.id,ns);}),meta);
   }
-  translate(p){const s=this.transform(M.translate(p));s.meta={...this.meta};if(s.meta.center)s.meta.center=V.add(s.meta.center,p);return s;}
+  translate(p){const s=this.transform(M.translate(p));s.meta={...this.meta,...s.meta};if(s.meta.center)s.meta.center=V.add(s.meta.center,p);return s;}
   triangles(){
     if(this._triangles)return this._triangles;
-    let out=[];for(const p of this.polygons){const ids=triangulate3D(p.vertices,p.normal);for(const [a,b,c] of ids){const vertices=[p.vertices[a],p.vertices[b],p.vertices[c]];if(V.len(V.cross(V.sub(vertices[1],vertices[0]),V.sub(vertices[2],vertices[0])))>1e-12)out.push({vertices,normal:p.normal,face:p.id});}}
+    let out=[];for(const p of this.polygons){const ids=triangulate3D(p.vertices,p.normal);for(const [a,b,c] of ids){const vertices=[p.vertices[a],p.vertices[b],p.vertices[c]];if(V.len(V.cross(V.sub(vertices[1],vertices[0]),V.sub(vertices[2],vertices[0])))>1e-12)out.push({vertices,normal:p.normal,normals:p.normals?[p.normals[a],p.normals[b],p.normals[c]]:undefined,face:p.id});}}
     this._triangles=out;return out;
   }
   bvh(){return this._bvh??=new BVH(this.triangles().slice());}
-  toJSON(){return {polygons:this.polygons.map(p=>({v:p.vertices,id:p.id})),meta:this.meta};}
+  toJSON(){return {polygons:this.polygons.map(p=>({v:p.vertices,id:p.id,...(p.normals?{n:p.normals}:{})})),meta:this.meta};}
   static fromJSON(data){
     if(!data||!Array.isArray(data.polygons)||data.polygons.length>200000)throw Error('Invalid or oversized solid.');
-    let count=0;const ps=data.polygons.map(p=>{if(!p||!Array.isArray(p.v)||p.v.length<3||p.v.length>10000||(count+=p.v.length)>1800000)throw Error('Invalid polygon.');return new Polygon(p.v.map(v=>{if(!Array.isArray(v)||v.length!==3||v.some(x=>typeof x!=='number'||!Number.isFinite(x)||Math.abs(x)>1e8))throw Error('Invalid vertex.');return v;}),String(p.id??tag()).slice(0,100));});
+    let count=0;const ps=data.polygons.map(p=>{if(!p||!Array.isArray(p.v)||p.v.length<3||p.v.length>10000||(count+=p.v.length)>1800000)throw Error('Invalid polygon.');return new Polygon(p.v.map(v=>{if(!Array.isArray(v)||v.length!==3||v.some(x=>typeof x!=='number'||!Number.isFinite(x)||Math.abs(x)>1e8))throw Error('Invalid vertex.');return v;}),String(p.id??tag()).slice(0,100),p.n?(Array.isArray(p.n)&&p.n.length===p.v.length&&p.n.every(n=>Array.isArray(n)&&n.length===3&&n.every(Number.isFinite))?p.n:(()=>{throw Error('Invalid surface normals.');})()):null);});
+    if(data.meta?.exact){const e=data.meta.exact;if(typeof e.brep!=='string'||e.brep.length>33554432||!e.brep.includes('CASCADE Topology')||!Array.isArray(e.pose)||e.pose.length!==16||!e.pose.every(Number.isFinite)||!Array.isArray(e.edgeLines)||e.edgeLines.length>3000000||!e.edgeLines.every(Number.isFinite))throw Error('Invalid exact body data.');}
     return new Solid(ps,typeof data.meta==='object'&&data.meta!==null?data.meta:{});
   }
 }
@@ -228,6 +234,7 @@ function conformingPolygons(polygons,tolerance=1e-5,maxChecks=12000000){
   }return new Polygon(out,p.id);});return {polygons:result,inserted};
 }
 export function featureEdges(solid,angle=25){
+  if(solid.meta.exact?.edgeLines){if(!solid._exactEdges){const e=solid.meta.exact,lines=e.edgeLines;solid._exactEdges=[];for(let i=0;i<lines.length;i+=6)solid._exactEdges.push([transformedPoint(e.pose,lines.slice(i,i+3)),transformedPoint(e.pose,lines.slice(i+3,i+6))]);}return solid._exactEdges;}
   solid._featureEdges??=new Map();if(solid._featureEdges.has(angle))return solid._featureEdges.get(angle);
   let top=topology(solid);if(top.boundary.length&&top.vertices.size<12000){try{top=topology(new Solid(conformingPolygons(solid.polygons).polygons));}catch{/* Keep honest boundary edges when the display normalization budget is exceeded. */}}
   const cosine=Math.cos(angle*Math.PI/180),edges=top.edges.filter(e=>e.faces.length!==2||V.dot(e.faces[0].normal,e.faces[1].normal)<cosine).map(e=>[e.a,e.b]);

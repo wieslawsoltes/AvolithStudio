@@ -5,8 +5,8 @@ import {Camera} from './camera.js';
 import {SCENE_WGSL,SHADOW_WGSL,ANALYSIS_WGSL,GL_VERTEX,GL_FRAGMENT,GL_SHADOW_VERTEX,GL_SHADOW_FRAGMENT} from './shaders.js';
 const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255);
 const LIGHT=V.norm([-.5,-.7,1.2]);
-function meshData(solid){let a=[];for(const t of solid.triangles())for(const v of t.vertices)a.push(...v,...t.normal);return new Float32Array(a);}
-function lineData(solid){return new Float32Array(featureEdges(solid,24).flat(2));}
+function meshData(solid){let a=[];for(const t of solid.triangles())for(let i=0;i<3;i++)a.push(...t.vertices[i],...(t.normals?.[i]||t.normal));return new Float32Array(a);}
+function lineData(solid){const e=solid.meta.exact;if(e?.edgeLines){const out=[];for(let i=0;i<e.edgeLines.length;i+=3)out.push(...M.point(e.pose,e.edgeLines.slice(i,i+3)).slice(0,3));return new Float32Array(out);}return new Float32Array(featureEdges(solid,24).flat(2));}
 /** Demand-driven GPU renderer with persistent per-solid buffers and native shadow/depth passes. */
 export class Renderer {
   constructor(canvas){

@@ -6,6 +6,7 @@
 <title>Avolith Studio — Direct Modeling</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect rx='7' width='32' height='32' fill='%231b435a'/%3E%3Cpath d='M6 24L16 5l10 19h-6l-4-8-4 8z' fill='%23f1b65f'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="engineering.css">
 </head>
 <body>
 <div id="app">
@@ -17,7 +18,7 @@
     <div id="title-actions"></div>
     <span class="local-avatar" title="Local workspace">L</span>
   </header>
-  <nav class="tabs" aria-label="Ribbon tabs"><button id="file-button" data-cmd="file">File</button><div id="ribbon-tabs"></div><span class="workspace-label">DIRECT MODELING <span class="version-badge">0.1</span></span></nav>
+  <nav class="tabs" aria-label="Ribbon tabs"><button id="file-button" data-cmd="file">File</button><div id="ribbon-tabs"></div><span class="workspace-label">DIRECT MODELING <span class="version-badge">0.2</span></span></nav>
   <section id="ribbon" class="ribbon" aria-label="Modeling tools"></section>
   <div class="document-tabs"><button id="sidebar-toggle" class="icon-button" aria-label="Toggle structure panel"></button><button class="document-tab active" data-cmd="model"><span id="model-tab-icon"></span><span id="model-tab-name">Actuator housing</span><span class="unsaved-dot" hidden>•</span></button><button class="document-tab" data-cmd="drawing" id="drawing-tab"><span id="drawing-tab-icon"></span><span>Drawing sheet</span></button><button class="tab-add" data-cmd="new" title="New design">+</button><div class="document-tabs-right"><span id="save-state">Local workspace</span><span class="saved-icon">✓</span></div></div>
   <main class="workspace">
@@ -53,8 +54,9 @@
 <div id="popup" class="popup" hidden></div>
 <dialog id="modal"><form method="dialog" id="modal-form"><div class="modal-heading"><div><span class="eyebrow" id="modal-eyebrow">AVOLITH STUDIO</span><h2 id="modal-title">Create body</h2></div><button class="icon-button modal-close" type="button" id="modal-close" aria-label="Close dialog">×</button></div><div id="modal-body"></div><div id="modal-error" class="form-error" role="alert" hidden></div><div class="modal-actions"><button class="button secondary" type="button" id="modal-cancel">Cancel</button><button class="button primary" type="submit" id="modal-submit">Create</button></div></form></dialog>
 <dialog id="palette"><div class="palette-input"><span id="palette-icon"></span><input id="palette-query" placeholder="Find a tool, view, or file command…" autocomplete="off" aria-label="Search commands"><kbd>Esc</kbd></div><div id="palette-results"></div><div class="palette-footer">Type to filter <span>↵ run command</span></div></dialog>
-<input type="file" id="file-input" accept=".avl,.avolith,.json,.stl,.obj,.ply,.dxf" hidden>
+<input type="file" id="file-input" accept=".avl,.avolith,.json,.stl,.obj,.ply,.dxf,.step,.stp,.iges,.igs,.brep" hidden>
 <noscript><div class="fatal-error">Avolith Studio requires JavaScript to run its geometry and rendering engines.</div></noscript>
 <script type="module" src="src/app.js"></script>
+<script type="module" src="src/engineering/ui.js"></script>
 </body>
 </html>
