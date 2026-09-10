@@ -1,0 +1,70 @@
+name: Import recovered engineering source
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: ['.github/workflows/import-engineering.yml']
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/exact-modeling-engineering
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Recover verified source bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/avolith-transfer
+          for sha in 1ba70e0869ff5e95d5347c40102c15fe100d0481 7935eecbdb02997a9ed457d298ead05e2e8b80ed 0201ac8a910e2bce9f540bcea3b1541ea83a6abd c1215a5d47cdafa6d11295bc914119877d6e0f72 46dddf9889568ed221790f0b4a51db775ee443be d3efd8d73764badda7dbc4d400b04238f120b98c; do
+            gh api repos/${{ github.repository }}/git/blobs/$sha --jq .content | base64 -d >> /tmp/avolith-transfer/prefix.br
+          done
+          for sha in 839b6969c5490318a2d93c1530c894b49ad87150 a5e1005488147dc1ca5d245bedac2d1624140f31 a13768d192509eaa3b2f4dc2c798b9c36b1308a2 07f1f4ec22642b882bcbfa45a5e5425e8a4ccfbc b998cba204906223ed7c4e25cb55615c2159fe71 4eaaedc5b1f89cc8db8118fc6dc5274fe9b08c2a; do
+            gh api repos/${{ github.repository }}/git/blobs/$sha --jq .content | base64 -d >> /tmp/avolith-transfer/tail.br
+          done
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import zlib from 'node:zlib';
+          import crypto from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          const dir='/tmp/avolith-transfer/';
+          const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const tail=fs.readFileSync(dir+'tail.br');
+          if(sha(tail)!=='f811a055c192b8796a70c5ddcbb238de3510e2a28101637defad2d03172b6cba')throw Error('Tail transfer checksum mismatch');
+          const chunks=[];const d=zlib.createBrotliDecompress();
+          await new Promise(resolve=>{d.on('data',c=>chunks.push(c));d.on('error',resolve);d.on('end',resolve);d.end(fs.readFileSync(dir+'prefix.br'));});
+          const prefix=Buffer.concat(chunks).subarray(0,194154);
+          if(sha(prefix)!=='0faeb0d227e0a866097498cfca7501a8969fa2819101ecb0b48e720a8c853978')throw Error('Prefix transfer checksum mismatch');
+          const recovered=JSON.parse(prefix.toString('utf8')+'}}');
+          if(sha(Buffer.from(recovered.patch))!=='6479b5d7084d4fdaa456f25e90f5654480e6f5c5b63a6155bcedb0f82f1d361a')throw Error('Patch checksum mismatch');
+          fs.writeFileSync(dir+'upgrade.patch',recovered.patch);
+          execFileSync('git',['apply','--check',dir+'upgrade.patch']);
+          execFileSync('git',['apply',dir+'upgrade.patch']);
+          const files={...recovered.files,...JSON.parse(zlib.brotliDecompressSync(tail))};
+          for(const [name,content] of Object.entries(files)){
+            if(name.startsWith('.github/'))continue;
+            if(name.startsWith('/')||name.split('/').includes('..')||typeof content!=='string')throw Error('Invalid recovered path');
+            fs.mkdirSync(name.substring(0,name.lastIndexOf('/'))||'.',{recursive:true});fs.writeFileSync(name,content);
+          }
+          console.log('Restored patch and',Object.keys(files).length,'source files');
+          JS
+      - run: npm test
+      - run: npm run vendor
+      - run: npm run test:exact
+      - run: npm run build:site
+      - name: Commit validated source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .gitignore README.md THIRD_PARTY_NOTICES.md index.html engineering.css package.json scripts src docs tests dist/Avolith-Studio.html
+          git commit -m 'feat: analytic B-rep/NURBS, exact editing, STEP/IGES and engineering workspaces'
+          git push origin HEAD:feature/exact-modeling-engineering
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recovered-exact-site
+          path: _site/
+          retention-days: 7
