@@ -1,0 +1,127 @@
+name: Land native exchange integration
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: [.github/workflows/stage-04-native-exchange.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: avolith-source-delivery
+  cancel-in-progress: false
+jobs:
+  native-exchange:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/exact-modeling-engineering
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install brotli==1.1.0 playwright==1.58.0 Pillow==12.1.0
+      - name: Restore integrity-verified native exchange source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64, brotli, gzip, hashlib, json, os, pathlib, subprocess, zlib
+          hashes = ['fad5d5856c2c9ff2b87700289ae8e170f43ceee6', 'f269948f9bb4843266b675c1b2603824ff637f2e', 'b01c3510273369e98da7804d7282a30d19f078e9']
+          parts = []
+          for sha in hashes:
+              obj = json.loads(subprocess.check_output(['gh','api',f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/blobs/{sha}']))
+              data = base64.b64decode(obj['content'])
+              actual = hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              if actual != sha: raise RuntimeError('Git object integrity mismatch')
+              parts.append(data)
+          payload = b''.join(parts)
+          parsed = None
+          for decode in [lambda x:x, brotli.decompress, gzip.decompress, zlib.decompress]:
+              try:
+                  parsed = json.loads(decode(payload))
+                  break
+              except (ValueError, brotli.error, OSError, zlib.error):
+                  pass
+          if parsed is None: raise RuntimeError('Unknown source transfer format; refusing to change repository')
+          entries = parsed.get('files', parsed) if isinstance(parsed, dict) else parsed
+          if isinstance(entries, dict): entries = [{'path':p,'content':c} for p,c in entries.items()]
+          if not isinstance(entries, list) or not entries: raise RuntimeError('Missing source entries')
+          root = pathlib.Path.cwd().resolve()
+          prepared = []
+          for entry in entries:
+              if not isinstance(entry,dict): raise RuntimeError('Invalid source entry')
+              name = entry.get('path', entry.get('name'))
+              if not isinstance(name,str): raise RuntimeError('Missing source path')
+              rel = pathlib.PurePosixPath(name)
+              if rel.is_absolute() or '..' in rel.parts or any(p.startswith('.') for p in rel.parts):
+                  raise RuntimeError('Unsafe source path: '+name)
+              if rel.parts[0] not in {'src','tests','scripts','docs','examples','vendor','package.json','package-lock.json','README.md','LICENSE','THIRD_PARTY_NOTICES.md','index.html','style.css'}:
+                  raise RuntimeError('Unexpected source path: '+name)
+              value = entry.get('content')
+              if isinstance(value,dict):
+                  entry = {**entry, **value}
+                  value = entry.get('content')
+              if not isinstance(value,str): raise RuntimeError('Non-text source entry: '+name)
+              data = base64.b64decode(value,validate=True) if entry.get('encoding')=='base64' else value.encode()
+              expected = entry.get('sha256')
+              if expected and hashlib.sha256(data).hexdigest()!=expected: raise RuntimeError('File integrity mismatch: '+name)
+              target = root.joinpath(*rel.parts)
+              if not target.resolve().is_relative_to(root): raise RuntimeError('Source escapes repository')
+              prepared.append((target,data))
+          for target,data in prepared:
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_bytes(data)
+          print('Restored',len(prepared),'source files; transfer SHA256',hashlib.sha256(payload).hexdigest())
+          PY
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-kernels-exchange-v2
+      - run: npm run vendor
+      - name: Verify units, native kernels and exchange
+        run: |
+          npm test
+          npm run test:exact
+          node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+          for(const name of Object.keys(p.scripts||{})) {
+            if(/^test:(3dm|exchange|translators|rhino)$/.test(name)) execFileSync('npm',['run',name],{stdio:'inherit'});
+          }
+          JS
+          npm run build:site
+      - run: python -m playwright install --with-deps chromium
+      - name: Exercise complete browser regression suite
+        run: |
+          mkdir -p test-results
+          python -m http.server 8765 > test-results/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          export AVOLITH_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python - <<'PY'
+          import pathlib,subprocess
+          paths=sorted(set(pathlib.Path('tests').glob('*browser*.py'))|{pathlib.Path('tests/render_validation.py')})
+          if not paths: raise RuntimeError('No browser regression tests found')
+          for path in paths:
+              if path.is_file(): subprocess.run(['xvfb-run','-a','python',str(path)],check=True)
+          PY
+      - name: Commit validated native exchange implementation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests scripts docs examples package.json README.md index.html style.css
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat: native 3dm exchange and verified engineering browser integration'
+            git push origin HEAD:feature/exact-modeling-engineering
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-exchange-browser-evidence
+          path: test-results/
+          retention-days: 14
