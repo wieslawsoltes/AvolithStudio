@@ -1,6 +1,6 @@
 import {V,M,transformedPoint} from '../core/math.js';
 import {uid} from '../core/document.js';
-const types=new Set(['coincident','distance','parallel','angle','plane','pointPlane','concentric','revolute','slider','fixed']);
+const types=new Set(['coincident','distance','parallel','angle','plane','pointPlane','concentric','revolute','slider','fixed','drivenRevolute','drivenSlider','screw']);
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const vector=(v,n)=>{if(!Array.isArray(v)||v.length!==3||!v.every(finite))throw Error(`Invalid ${n}.`);return v;};
 const unit=(v,n)=>{v=vector(v,n);if(V.len(v)<1e-8)throw Error(`${n} cannot be zero.`);return V.norm(v);};
@@ -34,6 +34,10 @@ export function validateMate(m,bodyMap){
   if(m.value!==undefined&&!finite(m.value))throw Error('Mate value must be finite.');
   if(m.type==='distance'&&(m.value??0)<0)throw Error('Distance cannot be negative.');
   if(m.type==='angle'&&((m.value??0)<0||(m.value??0)>180))throw Error('Mate angle must be between 0 and 180 degrees.');
+  if(m.type==='drivenRevolute'&&Math.abs(m.value??0)>179)throw Error('Driven angles must be within ±179 degrees; multi-turn motion is not unwrapped.');
+  if(m.offset!==undefined&&!finite(m.offset))throw Error('Joint offset must be finite.');
+  if(m.type==='screw'&&(!finite(m.pitch)||Math.abs(m.pitch)<1e-6||Math.abs(m.pitch)>1e6))throw Error('Screw pitch must be a nonzero finite mm/revolution value.');
+  if(m.limits!==undefined){if(!Array.isArray(m.limits)||m.limits.length!==2||!m.limits.every(finite)||m.limits[0]>=m.limits[1])throw Error('Joint limits need increasing [minimum, maximum].');if(!['revolute','slider','drivenRevolute','drivenSlider'].includes(m.type))throw Error('Limits are supported on revolute/slider joints.');if(m.type.toLowerCase().includes('revolute')&&(m.limits[0]<-179||m.limits[1]>179))throw Error('Revolute limits must lie within ±179 degrees.');if(m.type.startsWith('driven')&&((m.value??0)<m.limits[0]||(m.value??0)>m.limits[1]))throw Error('The requested drive is outside its joint limits.');}
   return m;
 }
 /** Damped nonlinear least squares on rigid-body SE(3) increments. Local solver;
@@ -49,11 +53,12 @@ export function solveAssembly(bodies,mates,grounded=[],options={}){
   const n=free.length*6,tolerance=options.tolerance??1e-5,angularScale=options.angularScale??10,maxIterations=options.maxIterations??80;
   if(!finite(tolerance)||tolerance<=0||tolerance>.1||!finite(angularScale)||angularScale<=0||angularScale>1e6||!Number.isInteger(maxIterations)||maxIterations<1||maxIterations>200)throw Error('Invalid solver settings.');
   function frames(x){const out=new Map();for(const id of used){const base=bases.get(id),j=index.get(id);if(j===undefined){out.set(id,base);continue;}const t=base.slice(12,15).map((p,k)=>p+x[j+k]),rot=base.slice();rot[12]=rot[13]=rot[14]=0;out.set(id,M.mul(M.translate(t),M.mul(rotvec(x.slice(j+3,j+6)),rot)));}return out;}
+  let diagnostics=[];
   function residual(x){
-    const f=frames(x),result=[];
+    const f=frames(x),result=[];diagnostics=[];
     for(const m of mates){
       const a=f.get(m.a.body),b=f.get(m.b.body),pa=transformedPoint(a,m.a.point),pb=transformedPoint(b,m.b.point),delta=V.sub(pa,pb),na=applyDir(a,m.a.axis),nb=V.mul(applyDir(b,m.b.axis),m.flip?-1:1),xa=applyDir(a,m.a.xAxis),xb=applyDir(b,m.b.xAxis),align=V.mul(alignError(na,nb),angularScale);
-      const axial=V.dot(delta,nb),radial=V.sub(delta,V.mul(nb,axial));
+      const axial=V.dot(delta,nb),radial=V.sub(delta,V.mul(nb,axial)),twist=Math.atan2(V.dot(V.cross(xa,xb),nb),V.dot(xa,xb)),start=result.length;
       switch(m.type){
         case 'coincident':result.push(...delta);break;
         case 'distance':result.push(V.len(delta)-(m.value??0));break;
@@ -64,8 +69,13 @@ export function solveAssembly(bodies,mates,grounded=[],options={}){
         case 'concentric':result.push(...align,...radial);break;
         case 'revolute':result.push(...align,...delta);break;
         case 'slider':result.push(...align,...radial,Math.atan2(V.dot(V.cross(xa,xb),nb),V.dot(xa,xb))*angularScale);break;
+        case 'drivenRevolute':result.push(...align,...delta,Math.atan2(Math.sin(twist-(m.value??0)*Math.PI/180),Math.cos(twist-(m.value??0)*Math.PI/180))*angularScale);break;
+        case 'drivenSlider':result.push(...align,...radial,twist*angularScale,axial-(m.value??0));break;
+        case 'screw':result.push(...align,...radial,axial-(m.offset??0)-m.pitch*twist/(2*Math.PI));break;
         case 'fixed':result.push(...align,...delta,Math.atan2(V.dot(V.cross(xa,xb),nb),V.dot(xa,xb))*angularScale);break;
       }
+      let limited=false;if(m.limits){const angle=m.type.toLowerCase().includes('revolute'),value=angle?twist*180/Math.PI:axial,clipped=Math.max(m.limits[0],Math.min(m.limits[1],value));limited=Math.abs(value-clipped)>1e-8;result.push((value-clipped)*(angle?angularScale*Math.PI/180:1));}
+      diagnostics.push({id:m.id||'',type:m.type,residual:Math.max(0,...result.slice(start).map(Math.abs)),activeLimit:limited});
     }
     if(result.some(v=>!Number.isFinite(v)))throw Error('Assembly residual became non-finite.');return result;
   }
@@ -82,8 +92,8 @@ export function solveAssembly(bodies,mates,grounded=[],options={}){
     if(cc<cost){x=y;r=rr;cost=cc;lambda=Math.max(1e-10,lambda*.3);}else lambda=Math.min(1e12,lambda*10);
     if(lambda>=1e12)break;
   }
-  const rank=matrixRank(jacobian(x,r)),transforms={};for(const [id,frame]of frames(x))if(index.has(id))transforms[id]=M.mul(frame,M.inverse(bases.get(id)));
-  return {converged:max(r)<=tolerance,iterations,maxResidual:max(r),rms:Math.sqrt(cost/Math.max(1,r.length)),degreesOfFreedom:n-rank,rank,variables:n,transforms,tolerance,angularToleranceRadians:tolerance/angularScale};
+  const rank=matrixRank(jacobian(x,r)),transforms={};residual(x);const mateResiduals=structuredClone(diagnostics);for(const [id,frame]of frames(x))if(index.has(id))transforms[id]=M.mul(frame,M.inverse(bases.get(id)));
+  return {converged:max(r)<=tolerance,mateResiduals,iterations,maxResidual:max(r),rms:Math.sqrt(cost/Math.max(1,r.length)),degreesOfFreedom:n-rank,rank,variables:n,transforms,tolerance,angularToleranceRadians:tolerance/angularScale};
 }
 export function applyAssemblySolution(document,result){
   if(!result.converged)throw Error(`Assembly did not converge (residual ${result.maxResidual.toPrecision(4)}). Conflicting or singular mates were not applied.`);

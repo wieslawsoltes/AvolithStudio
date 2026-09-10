@@ -5,7 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test tests/core.test.mjs tests/engineering.test.mjs",
+    "test": "node --test tests/core.test.mjs tests/engineering.test.mjs tests/motion.test.mjs",
     "build": "node scripts/build.mjs",
     "start": "python3 -m http.server 8765",
     "test:exact": "node --test tests/exact.test.mjs tests/precision.test.mjs",

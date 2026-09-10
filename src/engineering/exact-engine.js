@@ -3,6 +3,7 @@
  */
 import {M,V} from '../core/math.js';
 import {makeExactSheet} from './sheet-metal.js';
+import {makePanel} from './sheet-panel.js';
 import {PRECISION_COMMANDS,precisionOperation} from './precision-operations.js';
 
 export const EXACT_VERSION='1.0';
@@ -171,6 +172,7 @@ export async function initializeExact(options={}){
     const scope=new Scope();const started=performance.now();
     try{
       let result,metadata={};
+      if(command==='sheetPanel'){const p=makePanel(r,scope,args.definition||args,!!args.flat);let shape=p.shape;if(args.pose)shape=applyPose(shape,args.pose,scope);return packet(shape,scope,args,{sheetPanelDefinition:p.layout.definition,sheetPanelLayout:p.layout,sheetPanelPose:args.pose||M.identity(),flat:!!args.flat});}
       if(PRECISION_COMMANDS.has(command))return {...await precisionOperation(command,args,{oc,r,scope,load,packet,faceList,edgeList}),elapsedMs:performance.now()-started};
       if(command==='sheetMetal'){const sheet=makeExactSheet(r,scope,args.definition,!!args.flat);result=sheet.shape;if(args.pose)result=applyPose(result,args.pose,scope);metadata={sheetDefinition:sheet.layout.definition,sheetFlat:!!args.flat,sheetPose:args.pose||M.identity(),bendTable:sheet.layout.bendTable,flatLength:sheet.layout.flatLength};}
       else if(command==='primitive')result=primitive(args,scope);
