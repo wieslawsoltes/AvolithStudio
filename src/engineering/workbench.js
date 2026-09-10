@@ -19,7 +19,7 @@ const report=(title,obj)=>modal(title,`<pre class="engineering-report">${esc(JSO
 let lastSection=null,lastSectionSVG='',lastMotion=null,motionStamp='';
 const motionClient=new ExactClient(new URL('./analysis-worker.js',import.meta.url));
 const originalCancel=eng.cancel;eng.cancel=()=>{originalCancel();motionClient.cancel();};
-const stamp=()=>JSON.stringify({b:app.document.bodies.map(b=>[b.id,b.solid.meta.referenceKey,b.solid.meta.referenceFrame]),m:app.document.engineering.mates});
+const stamp=()=>JSON.stringify({b:app.document.bodies.map(b=>[b.id,b.locked,b.solid.meta.referenceKey,b.solid.meta.referenceFrame]),m:app.document.engineering.mates,g:app.document.engineering.grounded});
 const defaultPanel={outline:[[0,0],[100,0],[100,70],[0,70]],thickness:2,kFactor:.42,grainAngle:0,flanges:[0,1,2,3].map(edge=>({edge,length:25,radius:3,angle:90,gapStart:5,gapEnd:5})),cutouts:[{kind:'circle',center:[50,35],radius:8}]};
 
 function showSection(section,options){lastSection=section;lastSectionSVG=sectionSVG(section,options);const panel=document.getElementById('drawings');panel.innerHTML=`<div class="drawing-bar"><strong>${esc(options.name||'Section A–A')}</strong><button data-cmd="model">Back to model</button><button data-cmd="advanced-section-export">Export section</button></div><div class="engineering-sheet">${lastSectionSVG}</div>`;panel.hidden=false;app.state.drawing=true;app.state.exactDrawing=true;app.renderer.request();}

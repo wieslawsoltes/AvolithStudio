@@ -29,7 +29,7 @@ async def main():
     async with page.expect_download(timeout=180000) as ev: await submit()
     d=await ev.value;await d.save_as(str(OUT/('panel-flat.'+fmt)));assert (OUT/('panel-flat.'+fmt)).stat().st_size>100
    record('Panel CSV, actual section SVG/DXF and analytic flat STEP export through browser')
-   await page.evaluate('avolith.renderer.fit()');await page.screenshot(path=str(OUT/'advanced-panel.png'))
+   await page.evaluate('avolith.renderer.camera.fit(avolith.document.bounds());avolith.renderer.request()');await page.screenshot(path=str(OUT/'advanced-panel.png'))
    await action('advanced-section');await page.locator('#f-origin').fill('0,0,1');await submit();assert await page.locator('#drawings svg').count()==1;assert await page.evaluate('avolith.engineering.advanced.lastSection.loops.length')>=2;record('True section drawing contains perimeter and hole curves')
    await page.evaluate("avolith.execute('model')")
    await action('advanced-fit');await submit();assert await page.evaluate('avolith.ui.selectedBodies()[0].solid.meta.exact.faces[0].type')=='BSPLINE_SURFACE';record('Ordered-grid form creates an actual native BSpline surface')

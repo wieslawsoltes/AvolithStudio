@@ -3,6 +3,7 @@
  */
 import {M,V} from '../core/math.js';
 import {makeExactSheet} from './sheet-metal.js';
+import {rebuild3dmBrep} from './brep-interop.js';
 import {makePanel} from './sheet-panel.js';
 import {PRECISION_COMMANDS,precisionOperation} from './precision-operations.js';
 
@@ -147,12 +148,13 @@ export async function initializeExact(options={}){
     if(ids.some(i=>!Number.isInteger(i)||i<0||i>=all.length))throw Error('A face reference is invalid. Reselect faces after topology changes.');
     return [...new Set(ids)].map(i=>all[i]);
   }
-  function nurbs(input,scope){
+  function nurbs(input,scope,raw=false){
     const d=validateNURBS(input),nu=d.poles.length,nv=d.poles[0].length;
     const poles=scope.own(new oc.NCollection_Array2_gp_Pnt(1,nu,1,nv)),weights=scope.own(new oc.NCollection_Array2_double(1,nu,1,nv));
     d.poles.forEach((row,i)=>row.forEach((p,j)=>{const q=scope.own(new oc.gp_Pnt(...p));poles.SetValue(i+1,j+1,q);weights.SetValue(i+1,j+1,d.weights[i][j]);}));
     const arr=(type,values)=>{const a=scope.own(new type(1,values.length));values.forEach((x,i)=>a.SetValue(i+1,x));return a;};
     const surface=scope.own(new oc.Geom_BSplineSurface(poles,weights,arr(oc.NCollection_Array1_double,d.uKnots),arr(oc.NCollection_Array1_double,d.vKnots),arr(oc.NCollection_Array1_int,d.uMultiplicities),arr(oc.NCollection_Array1_int,d.vMultiplicities),d.uDegree,d.vDegree,!!d.uPeriodic,!!d.vPeriodic));
+    if(raw)return surface;
     const maker=scope.own(new oc.BRepBuilderAPI_MakeFace(surface,1e-7));
     if(!maker.IsDone())throw Error('Cannot construct the trimmed NURBS face.');
     return scope.own(r.cast(maker.Face()));
@@ -172,6 +174,7 @@ export async function initializeExact(options={}){
     const scope=new Scope();const started=performance.now();
     try{
       let result,metadata={};
+      if(command==='from3dmBrep')return packet(rebuild3dmBrep(r,oc,scope,args.brep,d=>nurbs(d,scope,true)),scope,args);
       if(command==='sheetPanel'){const p=makePanel(r,scope,args.definition||args,!!args.flat);let shape=p.shape;if(args.pose)shape=applyPose(shape,args.pose,scope);return packet(shape,scope,args,{sheetPanelDefinition:p.layout.definition,sheetPanelLayout:p.layout,sheetPanelPose:args.pose||M.identity(),flat:!!args.flat});}
       if(PRECISION_COMMANDS.has(command))return {...await precisionOperation(command,args,{oc,r,scope,load,packet,faceList,edgeList}),elapsedMs:performance.now()-started};
       if(command==='sheetMetal'){const sheet=makeExactSheet(r,scope,args.definition,!!args.flat);result=sheet.shape;if(args.pose)result=applyPose(result,args.pose,scope);metadata={sheetDefinition:sheet.layout.definition,sheetFlat:!!args.flat,sheetPose:args.pose||M.identity(),bendTable:sheet.layout.bendTable,flatLength:sheet.layout.flatLength};}
