@@ -1,0 +1,61 @@
+name: Land browser quality fixes
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: ['.github/workflows/stage-01-quality.yml']
+permissions:
+  contents: write
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/exact-modeling-engineering
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Correct optional-field and cancellation behavior
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          def replace(file,old,new):
+              p=Path(file); s=p.read_text(); assert old in s, (file,old); p.write_text(s.replace(old,new))
+          replace('src/engineering/ui.js',"id??'',{type:'text'})","id??'',{type:'text',optional:kind==='edges'})")
+          replace('src/engineering/ui.js',"field('datums','Datum order: A, B, C','',{type:'text'})","field('datums','Datum order: A, B, C','',{type:'text',optional:true})")
+          replace('src/app.js',"if(jobs.pending)jobs.cancel();closeModal();","if(jobs.pending)jobs.cancel();window.avolith?.engineering?.cancel();closeModal();")
+          replace('src/app.js',"()=>{jobs.cancel();modalHandler=null;}","()=>{jobs.cancel();window.avolith?.engineering?.cancel();modalHandler=null;}")
+          replace('tests/precision_browser.py',"  async def submit():\n   await", "  async def submit():\n   invalid=await page.locator('#modal-form :invalid').evaluate_all('(els)=>els.map(e=>e.id)')\n   assert not invalid, f'Invalid form fields: {invalid}'\n   await")
+          PY
+      - run: npm test && npm run build
+      - name: Commit browser fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests dist/Avolith-Studio.html
+          git commit -m 'fix: optional edge/PMI inputs and atomic dialog cancellation'
+          git push origin HEAD:feature/exact-modeling-engineering
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-kernels-1.1.0-1.1.1-v1
+      - run: npm run vendor
+      - run: pip install playwright==1.58.0 Pillow==12.1.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Browser regression tests
+        run: |
+          mkdir -p test-results
+          python -m http.server 8765 > test-results/http.log 2>&1 &
+          export AVOLITH_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          xvfb-run -a python tests/precision_browser.py
+          xvfb-run -a python tests/browser_test.py
+          xvfb-run -a python tests/render_validation.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-browser-evidence
+          path: test-results/
+          retention-days: 7
