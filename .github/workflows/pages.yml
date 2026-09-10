@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pages: read
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -47,6 +48,8 @@ jobs:
     needs: stage
     runs-on: ubuntu-latest
     permissions:
+      contents: read
+      actions: read
       pages: write
       id-token: write
     environment:
