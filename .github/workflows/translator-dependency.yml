@@ -1,0 +1,24 @@
+name: Verify native 3dm dependency
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: ['.github/workflows/translator-dependency.yml']
+permissions:
+  contents: read
+jobs:
+  dependency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          mkdir -p dependency
+          cd dependency
+          npm pack rhino3dm@8.32.1
+          sha256sum *.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhino3dm-dependency
+          path: dependency/
+          retention-days: 7
