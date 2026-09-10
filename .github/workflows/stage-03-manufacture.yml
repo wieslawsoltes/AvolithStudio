@@ -1,0 +1,72 @@
+name: Land sheet panels and motion studies
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: ['.github/workflows/stage-03-manufacture.yml']
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/exact-modeling-engineering
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Reconstruct and verify source transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/git/blobs/15cc88773b7cdc6010898058e5d0449241b0e265 --jq .content | base64 -d > /tmp/first.blob
+          python3 <<'PY'
+          import base64,hashlib,pathlib
+          p=pathlib.Path('/tmp/first.blob');s=base64.b64encode(p.read_bytes()).decode().rstrip('=')
+          assert s.count('DylhvzfzfV6')==1
+          s=s.replace('DylhvzfzfV6','DylhvzfV6')
+          s=s[:-1]+'H'
+          b=base64.b64decode(s)
+          assert hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()=='30c5578ccc8cc076c33a86e14d6cc555eda070a5'
+          pathlib.Path('/tmp/stage.br').write_bytes(b)
+          PY
+          for sha in 8665b99d26fe2ffe647e92eaa1cac112483dedc6 9e2007971171273bdb79535982171a2d057a4176; do
+            gh api repos/${{ github.repository }}/git/blobs/$sha --jq .content | base64 -d >> /tmp/stage.br
+          done
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';import zlib from 'node:zlib';import crypto from 'node:crypto';import{execFileSync}from'node:child_process';
+          const bytes=fs.readFileSync('/tmp/stage.br');if(crypto.createHash('sha256').update(bytes).digest('hex')!=='7211df7695af17d21d85654b49f396ff8271cef5150ae088690349c8c4e1d250')throw Error('Source checksum mismatch');
+          const data=JSON.parse(zlib.brotliDecompressSync(bytes));fs.writeFileSync('/tmp/stage.patch',data.patch);execFileSync('git',['apply','--check','/tmp/stage.patch']);execFileSync('git',['apply','/tmp/stage.patch']);
+          for(const[name,content]of Object.entries(data.files)){if(!/^(src|tests|scripts|docs)\//.test(name)||name.split('/').includes('..'))throw Error('Invalid path');fs.mkdirSync(name.slice(0,name.lastIndexOf('/')),{recursive:true});fs.writeFileSync(name,content);}
+          JS
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-kernels-1.1.0-1.1.1-v1
+      - run: npm run vendor
+      - run: npm test && npm run test:exact && npm run build:site
+      - name: Commit tested modeling and kinematics
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests package.json dist/Avolith-Studio.html
+          git commit -m 'feat: polygonal sheet panels, measured bend allowances, driven joints and worker motion studies'
+          git push origin HEAD:feature/exact-modeling-engineering
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.58.0 Pillow==12.1.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Exercise engineering controls in browser
+        run: |
+          mkdir -p test-results
+          python -m http.server 8765 > test-results/http.log 2>&1 &
+          export AVOLITH_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          xvfb-run -a python tests/advanced_browser.py
+          xvfb-run -a python tests/precision_browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sheet-motion-browser-evidence
+          path: test-results/
+          retention-days: 7
