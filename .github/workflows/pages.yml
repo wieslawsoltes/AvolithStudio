@@ -1,45 +1,86 @@
 name: Publish Avolith Studio
 on:
-  push:
+  workflow_run:
+    workflows: [Validate Avolith Studio]
+    types: [completed]
     branches: [main]
-    paths-ignore: ['.bootstrap/**']
-  workflow_dispatch:
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  actions: read
+  pages: read
 concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
-  build:
+  stage:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm run build
-      - name: Prepare static website
-        run: |
-          mkdir -p _site
-          cp index.html style.css _site/
-          cp -R src examples _site/
-          cp LICENSE README.md _site/
-          cp dist/Avolith-Studio.html _site/
-          touch _site/.nojekyll
-      - uses: actions/configure-pages@v5
+      - name: Reject a stale deployment
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_SHA"
+      - name: Download the exact site that passed all CI suites
+        uses: actions/download-artifact@v4
         with:
-          enablement: true
+          name: avolith-validated-site
+          path: _site
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Verify release revision and package contents
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node --test tests/site.test.mjs
+      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
   deploy:
-    needs: build
+    needs: stage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/deploy-pages@v4
         id: deployment
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.58.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Exercise the published app and all three CAD workers
+        env:
+          AVOLITH_URL: ${{ needs.deploy.outputs.page_url }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: xvfb-run -a python tests/release_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: avolith-live-deployment-evidence
+          path: test-results/release/
+          retention-days: 14

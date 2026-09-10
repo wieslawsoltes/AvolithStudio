@@ -4,3 +4,11 @@ __pycache__/
 .DS_Store
 *.log
 dist/syntax-check.mjs
+
+vendor/
+.cache/
+_site/
+test-results/
+
+# Reproducible distribution is built and validated in CI.
+dist/Avolith-Studio.html

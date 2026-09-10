@@ -1,0 +1,86 @@
+name: Validate Avolith Studio
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core-and-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Preserve source and revision for reproducible validation
+        run: |
+          mkdir -p test-results
+          git archive --format=zip --prefix=AvolithStudio/ HEAD -o test-results/AvolithStudio-Source.zip
+          git rev-parse HEAD > test-results/source-commit.txt
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-${{ hashFiles('scripts/install-vendor.mjs') }}
+      - run: npm run vendor
+      - run: npm test | tee test-results/core.tap
+      - run: npm run test:exact | tee test-results/exact.tap
+      - run: npm run test:3dm | tee test-results/native-3dm.tap
+      - run: npm run build:site | tee test-results/build.log
+      - run: node --test tests/site.test.mjs | tee test-results/site.tap
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: avolith-source-and-kernel-evidence
+          path: test-results/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avolith-validated-site
+          path: _site/
+          include-hidden-files: true
+          retention-days: 14
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-${{ hashFiles('scripts/install-vendor.mjs') }}
+      - run: npm run vendor
+      - run: npm run build:site
+      - run: pip install playwright==1.58.0 Pillow==12.1.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Exercise all original, precision, manufacturing and exchange workflows
+        shell: bash
+        run: |
+          mkdir -p test-results
+          python -m http.server 8765 > test-results/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          export AVOLITH_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          failed=0
+          for suite in precision_browser browser_test render_validation advanced_browser interop_browser; do
+            xvfb-run -a python "tests/${suite}.py" 2>&1 | tee "test-results/${suite}.log" || failed=1
+          done
+          AVOLITH_URL=http://127.0.0.1:8765/_site/ EXPECTED_SHA="$GITHUB_SHA" xvfb-run -a python tests/release_smoke.py 2>&1 | tee test-results/release-smoke.log || failed=1
+          exit "$failed"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: avolith-browser-evidence
+          path: test-results/
+          retention-days: 14
