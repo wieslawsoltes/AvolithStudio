@@ -1,0 +1,62 @@
+name: Validate Avolith Studio
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core-and-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-kernels-1.1.0-1.1.1-v1
+      - run: npm run vendor
+      - run: npm test
+      - run: npm run test:exact
+      - run: npm run build:site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avolith-validated-site
+          path: _site/
+          retention-days: 7
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: .cache/cad
+          key: cad-kernels-1.1.0-1.1.1-v1
+      - run: npm run vendor
+      - run: npm run build
+      - run: pip install playwright==1.58.0 Pillow==12.1.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Exercise original and exact browser workflows
+        run: |
+          mkdir -p test-results
+          python -m http.server 8765 > test-results/http.log 2>&1 &
+          export AVOLITH_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          xvfb-run -a python tests/precision_browser.py
+          xvfb-run -a python tests/browser_test.py
+          xvfb-run -a python tests/render_validation.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: avolith-browser-evidence
+          path: test-results/
+          retention-days: 7
