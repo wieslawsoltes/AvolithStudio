@@ -1,0 +1,39 @@
+name: Recover upgrade source
+on:
+  push:
+    branches: [feature/exact-modeling-engineering]
+    paths: ['.github/workflows/recover-upgrade.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Recover verified partial transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir recovery
+          for sha in 1ba70e0869ff5e95d5347c40102c15fe100d0481 7935eecbdb02997a9ed457d298ead05e2e8b80ed 0201ac8a910e2bce9f540bcea3b1541ea83a6abd c1215a5d47cdafa6d11295bc914119877d6e0f72 46dddf9889568ed221790f0b4a51db775ee443be d3efd8d73764badda7dbc4d400b04238f120b98c; do
+            gh api repos/${{ github.repository }}/git/blobs/$sha --jq .content | base64 -d >> recovery/prefix.br
+          done
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import zlib from 'node:zlib';
+          const chunks=[];
+          const d=zlib.createBrotliDecompress();
+          d.on('data',c=>chunks.push(c));
+          d.on('error',e=>{fs.writeFileSync('recovery/prefix.txt',Buffer.concat(chunks));console.log('Partial stream:',e.message,Buffer.concat(chunks).length);});
+          d.on('end',()=>fs.writeFileSync('recovery/prefix.txt',Buffer.concat(chunks)));
+          d.end(fs.readFileSync('recovery/prefix.br'));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recovered-upgrade-prefix
+          path: recovery/
+          retention-days: 7
