@@ -9,3 +9,6 @@ vendor/
 .cache/
 _site/
 test-results/
+
+# Reproducible distribution is built and validated in CI.
+dist/Avolith-Studio.html

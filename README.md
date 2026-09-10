@@ -2,44 +2,52 @@
 
 **Local-first 3D modeling in plain HTML and JavaScript, with native WebGPU rendering and an analytic CAD engine.**
 
-[Launch Avolith Studio](https://wieslawsoltes.github.io/AvolithStudio/) · [Capability matrix](docs/CAPABILITIES.md) · [Engineering architecture](docs/ENGINEERING.md) · [Validation](docs/TEST_REPORT.md)
+[Launch Avolith Studio](https://wieslawsoltes.github.io/AvolithStudio/) · [Current release scope](docs/RELEASE_NOTES.md) · [Capability matrix](docs/CAPABILITIES.md) · [Architecture](docs/ENGINEERING.md) · [Validation](docs/TEST_REPORT.md)
 
-Avolith combines a preserved faceted-modeling workspace with a separate **Precision** ribbon for exact B-rep/NURBS work and an **Engineering** ribbon for sheet metal, assemblies, drawings, PMI and geometry preparation. Exact geometry is modeled in an OpenCascade WebAssembly worker; tessellated triangles are display data, not its modeling source. No account, geometry upload, telemetry or backend modeling service is required.
+The modular application combines the original faceted workspace with **Precision**, **Advanced**, **Engineering**, **Manufacture** and **Exchange** ribbons. Exact bodies retain native B-rep geometry; their display triangles are tessellations, not the modeling source. Computation and file conversion remain in the browser, with self-hosted, pinned WebAssembly dependencies and no backend CAD service.
 
 ## Start
 
-The published site contains self-hosted, checksum-verified CAD libraries. Open **Precision → Exact sample** for a filleted and bored mounting block, an analytic shaft, a punched multibend sheet, a thickened NURBS panel and example PMI. The first exact operation loads the CAD kernel on demand. IGES loads a separate compatibility worker only when used.
+Open **Precision → Exact sample** to create a filleted/bored mounting block, analytic shaft, punched multibend sheet, thickened NURBS panel and PMI. CAD libraries load on demand. IGES and native `.3dm` exchange use separate workers.
 
 For local development, use Node 22+ and Python 3:
 
 ```sh
 npm run vendor
-python3 -m http.server 8765
+npm start
 ```
 
-Open `http://localhost:8765`. `npm run vendor` downloads **pinned** npm archives, verifies hard-coded SHA-256 checksums and copies their JS/WASM and license files under `vendor/`. Subsequent application use is local. To install without network access, set `AVOLITH_DEP_CACHE` to a folder containing the three archives listed in `scripts/install-vendor.mjs`. Keep the complete `vendor/` directory beside the app when distributing an offline folder.
+Open `http://localhost:8765`. The installer verifies the hard-coded SHA-256 checksums of four pinned dependency archives and installs their replaceable JS/WASM files and notices under `vendor/`. Set `AVOLITH_DEP_CACHE` to a folder containing the archives listed in `scripts/install-vendor.mjs` for installation without network access. After installation, serve the complete folder over HTTP(S).
 
 ```sh
-npm test             # Original core + engineering tests; no WASM dependency required
-npm run test:exact   # Actual native CAD operations and neutral-file roundtrips
-npm run build        # Self-contained, offline FACETED edition
-npm run build:site   # Enhanced modular application in _site/; requires vendor/
+npm test                        # Core, engineering and motion tests
+npm run test:exact              # Native geometry and STEP/IGES round-trips
+npm run test:3dm                # Native .3dm interoperability
+npm run build                  # Self-contained offline FACETED edition
+npm run build:site             # Complete modular app in _site/; requires vendor/
+node --test tests/site.test.mjs # Packaging, all kernels, notices and standalone isolation
 ```
 
-**The standalone HTML is explicitly the faceted edition.** The enhanced application uses module workers and separately replaceable CAD libraries; serve its folder over HTTP(S). It is not a dependency-free single HTML file.
+The hosted app is the **complete modular edition**. `Avolith-Studio-Offline.html` is the separate, dependency-free faceted edition; it does not contain the analytic CAD kernels. Generated HTML is available in CI artifacts and on Pages, not checked in as stale output.
 
-## Workspaces
+## Working capabilities
 
-**Precision:** analytic boxes, cylinders, cones, spheres, toruses and tubes; retained-primitive promotion; rational NURBS control-net editing; analytic-profile extrusion, revolution, loft and circular sweep; exact Boolean operations, splitting, cylindrical holes, constant-radius fillets, equal chamfers, shelling, draft, offsets, thickening and planar face-prism Pull; native mass properties and topology inspection; STEP, IGES and BREP geometry exchange. Selected faces and edges map back to current B-rep topology indices.
+**Precision and Advanced:** analytic primitives; weighted, periodic and UV-trimmed NURBS; surface fitting/analysis; extrusion, revolution, loft and sweep; exact Booleans, splitting, sewing, holes, fillets, variable-radius fillets, asymmetric chamfers, shelling, draft, thickening, offsets, healing, planar face-prism Pull, topology and mass properties.
 
-**Engineering:** developable multibend strips with round flange punches, retained unfold/refold definitions, flat DXF/SVG and bend CSV; body-local datums, grounded bodies, ten rigid-body mate types and a nonlinear solver reporting residual/rank/DOF; dimensions, notes, datum symbols and semantic feature-control-frame records; three-view exact hidden-line drawings; topology/small-feature and sampled-wall diagnostics, native clearance/interference, external-domain subtraction, exact-aware BOM, VTK surface meshes and explicitly labeled S3 shell skins.
+**Engineering and Manufacture:** developable multibend strips and edge-flanged polygon panels, reliefs, fold/unfold, developed geometry and bend schedules; grounded body mates, joint drives/limits and worker-computed motion studies; hidden-line and section drawings; dimensions, datums, feature-control-frame records; clearance/interference and preparation reports; BOM, VTK surfaces and S3 shell skins.
 
-**Original workspace:** direct faceted modeling, sketches and their constraint solver, assemblies/components, layers, materials, local file exchange, undo/redo, autosave, touch navigation and WebGL2/Canvas fallbacks remain available. New exact operations are atomic: errors or cancellation leave the document unchanged. Changes made while a worker request runs invalidate that request's result rather than overwriting newer edits.
+**Exchange:** STEP, IGES and BREP geometry; bounded native `.3dm` conversion with retained geometry, NURBS and trimmed B-reps. `.3dm` export distinguishes analytic retained geometry from explicit display meshes. For general edited exact solids, use STEP. The original mesh and document formats remain available.
+
+**Original workspace:** direct faceted modeling, sketch constraints, components, layers, materials, undo/redo, autosave, touch navigation and WebGL2/Canvas fallbacks. Cancellation and stale-result guards protect document edits.
+
+## Validation and publishing
+
+CI runs every native and browser suite, including advanced manufacturing and native exchange. A separate packaged-site smoke test uses a subdirectory URL and actual CAD downloads. Pages publishes the artifact from a successful `main` CI run and then verifies the public build's commit, WebGPU startup and all three native CAD workers. Source snapshots, TAP logs, browser results, screenshots and export samples are retained as Actions artifacts.
 
 ## Important boundaries
 
-This is an independently developed, usable CAD application, **not a full commercial-CAD replacement and not a certified manufacturing or simulation system**. Native proprietary CAD translators are not installed. STEP/IGES import does not restore source assembly hierarchy or semantic PMI. Sheet metal is a developable constant-width strip workflow, not arbitrary formed sheet metal. NURBS editing does not include arbitrary trim-loop networks. PMI records express design requirements; they do not prove conformance to a standard. Simulation exports are surfaces or shell skins, **not volumetric finite-element meshes or solved analyses**. See the matrix for specific limits rather than treating ribbon coverage as feature parity.
+This is **not a full commercial-CAD replacement or a certified manufacturing/simulation system**. `.3dm` support is explicitly bounded; other proprietary native formats are not supported. STEP/IGES import does not reconstruct all assembly hierarchy or semantic PMI. Fillets/shells remain subject to kernel geometry limits. Arbitrary sheet forming, comprehensive drafting/GD&T/PMI conformance, volume meshes, solved simulation and certification remain unmet targets. See [release scope and limits](docs/RELEASE_NOTES.md) instead of equating ribbon coverage with parity.
 
 ## License
 
-Avolith application code is MIT. Separately loaded third-party CAD libraries retain their own licenses. The dependency installer includes their notices; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) identifies source repositories, build instructions and the replaceable-library layout. No proprietary SDK, kernel or translator is bundled.
+Avolith application code is MIT. Separately loaded libraries retain their licenses and notices. [Third-party notices](THIRD_PARTY_NOTICES.md) identify upstream sources and the replaceable-library layout. No proprietary SDK or closed-source CAD kernel is bundled.

@@ -32,6 +32,7 @@ jobs:
       - run: npm run test:exact | tee test-results/exact.tap
       - run: npm run test:3dm | tee test-results/native-3dm.tap
       - run: npm run build:site | tee test-results/build.log
+      - run: node --test tests/site.test.mjs | tee test-results/site.tap
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,6 +76,7 @@ jobs:
           for suite in precision_browser browser_test render_validation advanced_browser interop_browser; do
             xvfb-run -a python "tests/${suite}.py" 2>&1 | tee "test-results/${suite}.log" || failed=1
           done
+          AVOLITH_URL=http://127.0.0.1:8765/_site/ EXPECTED_SHA="$GITHUB_SHA" xvfb-run -a python tests/release_smoke.py 2>&1 | tee test-results/release-smoke.log || failed=1
           exit "$failed"
       - uses: actions/upload-artifact@v4
         if: always()
