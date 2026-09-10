@@ -20,6 +20,8 @@ async def main():
   async def command(name):
    await page.evaluate('(name)=>avolith.execute(name)',name)
   async def submit():
+   invalid=await page.locator('#modal-form :invalid').evaluate_all('(els)=>els.map(e=>e.id)')
+   assert not invalid, f'Invalid form fields: {invalid}'
    await page.locator('#modal-submit').click();await page.wait_for_function('document.querySelector("#modal-submit").disabled===false',timeout=180000)
    if await page.locator('#modal-error').is_visible():raise AssertionError(await page.locator('#modal-error').inner_text())
   async def close():
