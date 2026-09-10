@@ -3,6 +3,7 @@
  */
 import {M,V} from '../core/math.js';
 import {makeExactSheet} from './sheet-metal.js';
+import {PRECISION_COMMANDS,precisionOperation} from './precision-operations.js';
 
 export const EXACT_VERSION='1.0';
 export const EXACT_LIMITS=Object.freeze({fileBytes:32*1024*1024,triangles:200000,faces:20000,edges:50000,controlPoints:4096});
@@ -35,13 +36,14 @@ export function validateNURBS(data){
   if(!Array.isArray(poles)||poles.length<2||!Array.isArray(poles[0])||poles[0].length<2||poles.length*poles[0].length>EXACT_LIMITS.controlPoints)throw Error('Invalid NURBS control net.');
   const nu=poles.length,nv=poles[0].length;
   for(const row of poles){if(!Array.isArray(row)||row.length!==nv)throw Error('NURBS control net must be rectangular.');row.forEach(p=>point(p,'Control point'));}
-  function knots(k,m,d,n,name){
+  function knots(k,m,d,n,name,periodic=false){
     if(!Number.isInteger(d)||d<1||d>Math.min(25,n-1))throw Error(`${name} degree is invalid.`);
     if(!Array.isArray(k)||!Array.isArray(m)||k.length!==m.length||k.length<2||k.length>n+2)throw Error(`${name} knot vector is invalid.`);
-    k.forEach((x,i)=>{number(x,`${name} knot`);if(i&&x<=k[i-1])throw Error('Knots must increase strictly.');if(!Number.isInteger(m[i])||m[i]<1||m[i]>(i===0||i===k.length-1?d+1:d))throw Error('Invalid knot multiplicity.');});
-    if(m.reduce((a,b)=>a+b,0)!==n+d+1)throw Error(`${name} multiplicities must sum to pole count + degree + 1.`);
+    k.forEach((x,i)=>{number(x,`${name} knot`);if(i&&x<=k[i-1])throw Error('Knots must increase strictly.');if(!Number.isInteger(m[i])||m[i]<1||m[i]>(!periodic&&(i===0||i===k.length-1)?d+1:d))throw Error('Invalid knot multiplicity.');});
+    if(periodic){if(m[0]!==m.at(-1)||m.reduce((a,b)=>a+b,0)-m[0]!==n)throw Error(`${name} periodic multiplicities must match at the seam and sum minus seam multiplicity must equal pole count.`);}
+    else if(m.reduce((a,b)=>a+b,0)!==n+d+1)throw Error(`${name} multiplicities must sum to pole count + degree + 1.`);
   }
-  knots(uKnots,uMultiplicities,uDegree,nu,'U');knots(vKnots,vMultiplicities,vDegree,nv,'V');
+  knots(uKnots,uMultiplicities,uDegree,nu,'U',!!data.uPeriodic);knots(vKnots,vMultiplicities,vDegree,nv,'V',!!data.vPeriodic);
   const weights=data.weights||poles.map(row=>row.map(()=>1));
   if(!Array.isArray(weights)||weights.length!==nu||weights.some(row=>!Array.isArray(row)||row.length!==nv))throw Error('Weights must match the control net.');
   weights.forEach(row=>row.forEach(w=>positive(w,'NURBS weight')));
@@ -69,9 +71,9 @@ export async function initializeExact(options={}){
     const tr=scope.own(new oc.BRepBuilderAPI_Transform(shape.wrapped,t,true));
     return scope.own(r.cast(tr.Shape()));
   }
-  function load(input,scope){
+  function load(input,scope,allowInvalid=false){
     if(!input||typeof input.brep!=='string'||!input.brep.includes('CASCADE Topology')||input.brep.length>EXACT_LIMITS.fileBytes)throw Error('An exact B-rep body is required. Promote an eligible primitive or import STEP/IGES first.');
-    const s=scope.own(r.deserializeShape(input.brep));return valid(applyPose(s,input.pose,scope),scope);
+    const s=scope.own(r.deserializeShape(input.brep));const posed=applyPose(s,input.pose,scope);return allowInvalid?posed:valid(posed,scope);
   }
   function meshOptions(config={}){
     return {tolerance:number(config.tolerance??.12,'Display chord tolerance',.001,10),angularTolerance:number(config.angularTolerance??.22,'Angular tolerance',.02,1)};
@@ -149,7 +151,7 @@ export async function initializeExact(options={}){
     const poles=scope.own(new oc.NCollection_Array2_gp_Pnt(1,nu,1,nv)),weights=scope.own(new oc.NCollection_Array2_double(1,nu,1,nv));
     d.poles.forEach((row,i)=>row.forEach((p,j)=>{const q=scope.own(new oc.gp_Pnt(...p));poles.SetValue(i+1,j+1,q);weights.SetValue(i+1,j+1,d.weights[i][j]);}));
     const arr=(type,values)=>{const a=scope.own(new type(1,values.length));values.forEach((x,i)=>a.SetValue(i+1,x));return a;};
-    const surface=scope.own(new oc.Geom_BSplineSurface(poles,weights,arr(oc.NCollection_Array1_double,d.uKnots),arr(oc.NCollection_Array1_double,d.vKnots),arr(oc.NCollection_Array1_int,d.uMultiplicities),arr(oc.NCollection_Array1_int,d.vMultiplicities),d.uDegree,d.vDegree,false,false));
+    const surface=scope.own(new oc.Geom_BSplineSurface(poles,weights,arr(oc.NCollection_Array1_double,d.uKnots),arr(oc.NCollection_Array1_double,d.vKnots),arr(oc.NCollection_Array1_int,d.uMultiplicities),arr(oc.NCollection_Array1_int,d.vMultiplicities),d.uDegree,d.vDegree,!!d.uPeriodic,!!d.vPeriodic));
     const maker=scope.own(new oc.BRepBuilderAPI_MakeFace(surface,1e-7));
     if(!maker.IsDone())throw Error('Cannot construct the trimmed NURBS face.');
     return scope.own(r.cast(maker.Face()));
@@ -169,6 +171,7 @@ export async function initializeExact(options={}){
     const scope=new Scope();const started=performance.now();
     try{
       let result,metadata={};
+      if(PRECISION_COMMANDS.has(command))return {...await precisionOperation(command,args,{oc,r,scope,load,packet,faceList,edgeList}),elapsedMs:performance.now()-started};
       if(command==='sheetMetal'){const sheet=makeExactSheet(r,scope,args.definition,!!args.flat);result=sheet.shape;if(args.pose)result=applyPose(result,args.pose,scope);metadata={sheetDefinition:sheet.layout.definition,sheetFlat:!!args.flat,sheetPose:args.pose||M.identity(),bendTable:sheet.layout.bendTable,flatLength:sheet.layout.flatLength};}
       else if(command==='primitive')result=primitive(args,scope);
       else if(command==='facetBrep'){

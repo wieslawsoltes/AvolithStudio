@@ -11,7 +11,7 @@ const code=`// Avolith Studio standalone — original source is in src/.\nglobal
 await fs.mkdir(path.join(root,'dist'),{recursive:true});
 const check=path.join(root,'dist','syntax-check.mjs');await fs.writeFile(check,code);execFileSync(process.execPath,['--check',check],{stdio:'inherit'});await fs.unlink(check);
 let html=await fs.readFile(path.join(root,'index.html'),'utf8'),css=await fs.readFile(path.join(root,'style.css'),'utf8');
-html=html.replace(/<link[^>]*href="engineering\.css"[^>]*>/,'').replace(/<script type="module" src="src\/engineering\/ui\.js"><\/script>/,'');
+html=html.replace(/<link[^>]*href="engineering\.css"[^>]*>/,'').replace(/<script type="module" src="src\/engineering\/(?:ui|workbench)\.js"><\/script>/g,'');
 html=html.replace(/<link[^>]*href="style\.css"[^>]*>/,()=>`<style>\n${css}\n</style>`).replace(/<script type="module" src="src\/app\.js"><\/script>/,()=>`<script type="module">\n${code.replace(/<\/script/gi,'<\\/script')}\n</script>`);
 if(html.includes('src="src/app.js"')||html.includes('href="style.css"'))throw Error('Build template changed: script or stylesheet was not inlined.');
 html=html.replace('DIRECT MODELING <span', 'OFFLINE FACETED EDITION <span');

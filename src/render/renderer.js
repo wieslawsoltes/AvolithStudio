@@ -24,7 +24,7 @@ export class Renderer {
     this.adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!this.adapter)throw Error('No WebGPU adapter is available.');this.device=await this.adapter.requestDevice();let d=this.device;
     this.adapterInfo=this.adapter.info?`${this.adapter.info.vendor||''} ${this.adapter.info.architecture||''}`.trim():'';
     d.addEventListener('uncapturederror',e=>this.onError(e.error.message));d.lost.then(info=>{if(!this.disposed&&this.backend==='WebGPU'){this.onError(`GPU device lost: ${info.message}. Reload to recover.`);this.backend='WebGPU device lost';this.onBackend(this.backend,info.message);}});
-    this.context=this.canvas.getContext('webgpu');if(!this.context)throw Error('Cannot create a WebGPU canvas context.');this.format=navigator.gpu.getPreferredCanvasFormat();this.context.configure({device:d,format:this.format,alphaMode:'opaque'});
+    this.context=this.canvas.getContext('webgpu');if(!this.context)throw Error('Cannot create a WebGPU canvas context.');this.format=navigator.gpu.getPreferredCanvasFormat();this.context.configure({device:d,format:this.format,alphaMode:'opaque',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
     const module=d.createShaderModule({label:'Avolith shaded surfaces / edges',code:SCENE_WGSL}),shadowModule=d.createShaderModule({label:'Avolith shadow map',code:SHADOW_WGSL});
     for(const m of [module,shadowModule]){let info=await m.getCompilationInfo();let errors=info.messages.filter(m=>m.type==='error');if(errors.length)throw Error(errors.map(e=>e.message).join('\n'));}
     const vis=GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT;
@@ -115,6 +115,22 @@ export class Renderer {
     const input=d.createBuffer({size:data.byteLength,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST}),output=d.createBuffer({size:tris.length*8,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC}),read=d.createBuffer({size:tris.length*8,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
     try{d.queue.writeBuffer(input,0,data);let bg=d.createBindGroup({layout:this.computePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:input}},{binding:1,resource:{buffer:output}}]}),enc=d.createCommandEncoder(),pass=enc.beginComputePass();pass.setPipeline(this.computePipeline);pass.setBindGroup(0,bg);pass.dispatchWorkgroups(Math.ceil(tris.length/128));pass.end();enc.copyBufferToBuffer(output,0,read,0,tris.length*8);d.queue.submit([enc.finish()]);await read.mapAsync(GPUMapMode.READ);let values=new Float32Array(read.getMappedRange()),area=0,signedVolume=0;for(let i=0;i<values.length;i+=2){area+=values[i];signedVolume+=values[i+1];}read.unmap();return {area,signedVolume,volume:Math.abs(signedVolume),triangles:tris.length,ms:performance.now()-start,precision:'float32 GPU, float64 reduction'};}finally{input.destroy();output.destroy();read.destroy();}
   }
-  async capture(){this.render();if(this.device)await this.device.queue.onSubmittedWorkDone();return new Promise(resolve=>this.canvas.toBlob(resolve,'image/png'));}
+  async capture(){
+    this.render();
+    if(this.backend!=='WebGPU')return new Promise(resolve=>this.canvas.toBlob(resolve,'image/png'));
+    // Copy the current swap texture before yielding; presentation invalidates it.
+    const width=this.canvas.width,height=this.canvas.height,row=Math.ceil(width*4/256)*256;
+    if(width*height>16777216)throw Error('Viewport capture exceeds the 16-megapixel budget.');
+    const read=this.device.createBuffer({size:row*height,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+    try{
+      const encoder=this.device.createCommandEncoder({label:'Stable viewport readback'});
+      encoder.copyTextureToBuffer({texture:this.context.getCurrentTexture()},{buffer:read,bytesPerRow:row,rowsPerImage:height},[width,height]);
+      this.device.queue.submit([encoder.finish()]);await read.mapAsync(GPUMapMode.READ);
+      const src=new Uint8Array(read.getMappedRange()),rgba=new Uint8ClampedArray(width*height*4),bgra=this.format.startsWith('bgra');
+      for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=y*row+x*4,j=(y*width+x)*4;rgba[j]=src[i+(bgra?2:0)];rgba[j+1]=src[i+1];rgba[j+2]=src[i+(bgra?0:2)];rgba[j+3]=255;}
+      const image=document.createElement('canvas');image.width=width;image.height=height;image.getContext('2d').putImageData(new ImageData(rgba,width,height),0,0);
+      return await new Promise(resolve=>image.toBlob(resolve,'image/png'));
+    }finally{read.destroy();}
+  }
   dispose(){this.disposed=true;this.observer?.disconnect();this.device?.destroy();}
 }

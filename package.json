@@ -8,7 +8,7 @@
     "test": "node --test tests/core.test.mjs tests/engineering.test.mjs",
     "build": "node scripts/build.mjs",
     "start": "python3 -m http.server 8765",
-    "test:exact": "node --test tests/exact.test.mjs",
+    "test:exact": "node --test tests/exact.test.mjs tests/precision.test.mjs",
     "vendor": "node scripts/install-vendor.mjs",
     "build:site": "npm run build && node scripts/site.mjs"
   },
